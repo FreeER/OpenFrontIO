@@ -6,7 +6,6 @@ import {
   Cell,
   ColoredTeams,
   PlayerType,
-  Team,
   UnitType,
 } from "../../../core/game/Game";
 import { euclDistFN, TileRef } from "../../../core/game/GameMap";
@@ -22,6 +21,7 @@ import {
 import { FrameProfiler } from "../FrameProfiler";
 import { TransformHandler } from "../TransformHandler";
 import { Layer } from "./Layer";
+import { SpawnClaimOverlay } from "./SpawnClaimOverlay";
 
 export class TerritoryLayer implements Layer {
   private userSettings: UserSettings;
@@ -46,6 +46,8 @@ export class TerritoryLayer implements Layer {
   private highlightCanvas: HTMLCanvasElement;
   private highlightContext: CanvasRenderingContext2D;
 
+  private spawnOverlay: SpawnClaimOverlay;
+
   private highlightedTerritory: PlayerView | null = null;
 
   private alternativeView = false;
@@ -57,6 +59,7 @@ export class TerritoryLayer implements Layer {
   private lastRefresh = 0;
 
   private lastFocusedPlayer: PlayerView | null = null;
+  private wasInSpawnPhase = false;
 
   constructor(
     private game: GameView,
@@ -67,6 +70,7 @@ export class TerritoryLayer implements Layer {
     this.userSettings = userSettings;
     this.theme = game.config().theme();
     this.cachedTerritoryPatternsEnabled = undefined;
+    this.spawnOverlay = new SpawnClaimOverlay(this.game, this.theme);
   }
 
   shouldTransform(): boolean {
@@ -81,6 +85,14 @@ export class TerritoryLayer implements Layer {
   }
 
   tick() {
+    const inSpawnPhase = this.game.inSpawnPhase();
+    if (!inSpawnPhase && this.wasInSpawnPhase) {
+      this.spawnOverlay.deactivate();
+    }
+    if (inSpawnPhase && !this.wasInSpawnPhase) {
+      this.spawnOverlay.activate();
+    }
+    this.wasInSpawnPhase = inSpawnPhase;
     if (this.game.inSpawnPhase()) {
       this.spawnHighlight();
     }
@@ -372,6 +384,8 @@ export class TerritoryLayer implements Layer {
     this.highlightCanvas.width = this.game.width();
     this.highlightCanvas.height = this.game.height();
 
+    this.spawnOverlay.resize();
+
     this.game.forEachTile((t) => {
       this.paintTerritory(t);
     });
@@ -443,6 +457,14 @@ export class TerritoryLayer implements Layer {
     );
     FrameProfiler.end("TerritoryLayer:drawCanvas", drawCanvasStart);
     if (this.game.inSpawnPhase()) {
+      this.spawnOverlay.update();
+      const spawnOverlayDrawStart = FrameProfiler.start();
+      this.spawnOverlay.render(context);
+      FrameProfiler.end(
+        "TerritoryLayer:drawSpawnOverlay",
+        spawnOverlayDrawStart,
+      );
+
       const highlightDrawStart = FrameProfiler.start();
       context.drawImage(
         this.highlightCanvas,
