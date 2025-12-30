@@ -114,19 +114,20 @@ export class SpawnClaimOverlay {
   }
 
   private initCanvases() {
+    const { width, height } = this.overlaySize();
     this.canvas = document.createElement("canvas");
     const context = this.canvas.getContext("2d", { alpha: true });
     if (context === null) throw new Error("2d context not supported");
     this.context = context;
-    this.canvas.width = this.game.width();
-    this.canvas.height = this.game.height();
+    this.canvas.width = width;
+    this.canvas.height = height;
 
     this.prevCanvas = document.createElement("canvas");
     const prevContext = this.prevCanvas.getContext("2d", { alpha: true });
     if (prevContext === null) throw new Error("2d context not supported");
     this.prevContext = prevContext;
-    this.prevCanvas.width = this.game.width();
-    this.prevCanvas.height = this.game.height();
+    this.prevCanvas.width = width;
+    this.prevCanvas.height = height;
 
     this.key = null;
     this.keySet = null;
@@ -234,7 +235,12 @@ export class SpawnClaimOverlay {
     if (!this.prevContext) {
       return;
     }
-    this.prevContext.clearRect(0, 0, this.game.width(), this.game.height());
+    this.prevContext.clearRect(
+      0,
+      0,
+      this.prevCanvas.width,
+      this.prevCanvas.height,
+    );
     this.prevContext.drawImage(this.canvas, 0, 0);
     this.transitionStart = performance.now();
     this.transitionActive = true;
@@ -317,6 +323,15 @@ export class SpawnClaimOverlay {
     const height = this.game.height();
     const { coarseWidth, coarseHeight, coarseCost, coarseLand } =
       this.buildCoarseGrid(scale, width, height);
+    if (
+      this.canvas.width !== coarseWidth ||
+      this.canvas.height !== coarseHeight
+    ) {
+      this.canvas.width = coarseWidth;
+      this.canvas.height = coarseHeight;
+      this.prevCanvas.width = coarseWidth;
+      this.prevCanvas.height = coarseHeight;
+    }
     const totalCoarse = coarseWidth * coarseHeight;
     const bestCost = new Float32Array(totalCoarse);
     const bestSource = new Int32Array(totalCoarse);
@@ -475,18 +490,13 @@ export class SpawnClaimOverlay {
     sources: SpawnClaimSource[],
     coarseWidth: number,
     coarseHeight: number,
-    scale: number,
+    _scale: number,
   ) {
     const paintStart = FrameProfiler.start();
     const ctx = this.context;
-    ctx.clearRect(0, 0, this.game.width(), this.game.height());
-    const imageData = ctx.createImageData(
-      this.game.width(),
-      this.game.height(),
-    );
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const imageData = ctx.createImageData(coarseWidth, coarseHeight);
     const data = imageData.data;
-    const fullWidth = this.game.width();
-    const fullHeight = this.game.height();
     const totalCoarse = coarseWidth * coarseHeight;
     for (let cell = 0; cell < totalCoarse; cell++) {
       const sourceIndex = bestSource[cell];
@@ -494,22 +504,11 @@ export class SpawnClaimOverlay {
         continue;
       }
       const color = sources[sourceIndex].color;
-      const baseX = (cell % coarseWidth) * scale;
-      const baseY = Math.floor(cell / coarseWidth) * scale;
-      for (let dy = 0; dy < scale; dy++) {
-        const y = baseY + dy;
-        if (y >= fullHeight) continue;
-        const rowOffset = y * fullWidth;
-        for (let dx = 0; dx < scale; dx++) {
-          const x = baseX + dx;
-          if (x >= fullWidth) continue;
-          const offset = (rowOffset + x) * 4;
-          data[offset] = color.rgba.r;
-          data[offset + 1] = color.rgba.g;
-          data[offset + 2] = color.rgba.b;
-          data[offset + 3] = this.alpha;
-        }
-      }
+      const offset = cell * 4;
+      data[offset] = color.rgba.r;
+      data[offset + 1] = color.rgba.g;
+      data[offset + 2] = color.rgba.b;
+      data[offset + 3] = this.alpha;
     }
 
     const myTeam = this.game.myPlayer()?.team() ?? null;
@@ -544,22 +543,11 @@ export class SpawnClaimOverlay {
               const nx = x + dx;
               if (nx < 0 || nx >= coarseWidth) continue;
               const target = rowOffset + nx;
-              const baseX = (target % coarseWidth) * scale;
-              const baseY = Math.floor(target / coarseWidth) * scale;
-              for (let bdy = 0; bdy < scale; bdy++) {
-                const py = baseY + bdy;
-                if (py >= fullHeight) continue;
-                const row = py * fullWidth;
-                for (let bdx = 0; bdx < scale; bdx++) {
-                  const px = baseX + bdx;
-                  if (px >= fullWidth) continue;
-                  const offset = (row + px) * 4;
-                  data[offset] = borderR;
-                  data[offset + 1] = borderG;
-                  data[offset + 2] = borderB;
-                  data[offset + 3] = borderA;
-                }
-              }
+              const offset = target * 4;
+              data[offset] = borderR;
+              data[offset + 1] = borderG;
+              data[offset + 2] = borderB;
+              data[offset + 3] = borderA;
             }
           }
         }
@@ -571,7 +559,7 @@ export class SpawnClaimOverlay {
   }
 
   private clearOverlay() {
-    this.context.clearRect(0, 0, this.game.width(), this.game.height());
+    this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   private buildCoarseGrid(
@@ -732,9 +720,12 @@ export class SpawnClaimOverlay {
     const y = -this.game.height() / 2;
     const w = this.game.width();
     const h = this.game.height();
+    const prevSmoothing = context.imageSmoothingEnabled;
+    context.imageSmoothingEnabled = false;
 
     if (!this.transitionActive) {
       context.drawImage(this.canvas, x, y, w, h);
+      context.imageSmoothingEnabled = prevSmoothing;
       return;
     }
 
@@ -752,9 +743,17 @@ export class SpawnClaimOverlay {
     context.globalAlpha = previousAlphaCached * nextAlpha;
     context.drawImage(this.canvas, x, y, w, h);
     context.globalAlpha = previousAlphaCached;
+    context.imageSmoothingEnabled = prevSmoothing;
 
     if (progress >= 1) {
       this.transitionActive = false;
     }
+  }
+
+  private overlaySize() {
+    return {
+      width: Math.ceil(this.game.width() / this.cellSize),
+      height: Math.ceil(this.game.height() / this.cellSize),
+    };
   }
 }

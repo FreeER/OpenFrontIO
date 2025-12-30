@@ -128,4 +128,25 @@ describe("SpawnClaimOverlay", () => {
     expect(ctx.putImageData).toHaveBeenCalled();
     expect(renderCtx.drawImage).toHaveBeenCalled();
   });
+
+  it("ignores update and render when deactivated", () => {
+    const loc = { x: 1, y: 1, size: 1 };
+    const player = createPlayer("p1", "Red", PlayerType.Human, loc);
+    const game = createGame([player]);
+    const theme = {
+      teamColor: () => colord("#ff0000"),
+      territoryColor: () => colord("#999999"),
+    } as any;
+
+    const overlay = new SpawnClaimOverlay(game, theme);
+    overlay.deactivate();
+
+    now = 100;
+    overlay.update();
+    const renderCtx = makeContext();
+    overlay.render(renderCtx);
+
+    expect(ctx.putImageData).not.toHaveBeenCalled();
+    expect(renderCtx.drawImage).not.toHaveBeenCalled();
+  });
 });
